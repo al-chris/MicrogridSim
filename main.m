@@ -1,96 +1,138 @@
 % main.m - Main script to simulate microgrid and run optimization using CSA and PSO
 
-% 1. Set up system parameters
-params.PV.capacity = 50;             % Rated PV power at STC (kW)
-params.PV.temp_coeff = -0.004;       % Temperature coefficient (per °C)
-params.Wind.rho = 1.225;             % Air density (kg/m^3)
-params.Wind.area = pi * (20^2);      % Rotor swept area (m^2), assuming rotor radius of 20m
-params.Wind.Cp = 0.4;                % Power coefficient
-params.Wind.P_rated = 500;           % Rated power of wind turbine (kW)
-params.Wind.v_cutin = 3;             % Cut-in wind speed (m/s)
-params.Wind.v_rated = 12;            % Rated wind speed (m/s)
-params.Wind.v_cutout = 25;           % Cut-out wind speed (m/s)
+% 1. System parameters
+% PV single-diode parameters
+params.PV.Iph_ref   = 5;           % A, reference photocurrent at STC (user to adjust)
+params.PV.I0_ref    = 1e-10;       % A, reference saturation current
+params.PV.alpha_I   = 0.002;       % A/K, temp coefficient for current
+params.PV.Eg        = 1.12;        % eV, bandgap energy for silicon
+params.PV.T_ref     = 298.15;      % K, reference temperature (25°C)
+params.PV.Rs        = 0.5;         % Ω, series resistance
+params.PV.Rsh       = 1000;        % Ω, shunt resistance
+params.PV.n         = 1.3;         % diode ideality factor
+params.PV.Vmp       = 30;          % V, module voltage at MPP
 
-params.BESS.capacity = 500;          % Battery storage capacity (kWh)
-params.BESS.SoC_init = 0.5;          % Initial state of charge (fraction)
-params.BESS.SoC_min = 0.2;           % Minimum state of charge (fraction)
-params.BESS.SoC_max = 1.0;           % Maximum state of charge (fraction)
-params.BESS.eff_charge = 0.9;        % Charging efficiency
-params.BESS.eff_discharge = 0.9;     % Discharging efficiency
-params.BESS.dt = 1;                  % Time step duration (hours)
-params.BESS.max_discharge = 50;      % Maximum discharging rate (kW)
-params.BESS.max_charge = 50;         % Maximum charging rate (kW)
+% Wind turbine parameters
+params.Wind.rho     = 1.225;       % kg/m^3, air density
+params.Wind.area    = pi*(20^2);   % m^2, rotor swept area
+params.Wind.beta    = 0;           % deg, blade pitch angle
+params.Wind.omega   = 2*pi*15;     % rad/s, rotor speed
 
-params.C_grid = 0.05;                % Cost per kWh for grid electricity
-params.C_diesel = 0.15;              % Cost per kWh for diesel generation
-params.C_batt = 0.10;                % Cost per kWh for battery usage
+% Battery storage parameters
+params.BESS.capacity    = 500;     % kWh
+params.BESS.SoC_init    = 0.5;     % fraction
+params.BESS.SoC_min     = 0.2;     % fraction
+params.BESS.SoC_max     = 1.0;     % fraction
+params.BESS.eff_charge  = 0.9;     % charging efficiency
+params.BESS.eff_discharge = 0.9;    % discharging efficiency
+params.BESS.dt          = 1;       % h, time step duration
+params.BESS.max_discharge = 50;    % kW
+params.BESS.max_charge    = 50;    % kW
 
-params.max_iter = 100;               % Max iterations for optimization
-params.n_nests = 20;                 % Number of nests for CSA
-params.n_particles = 20;             % Number of particles for PSO
+% Cost parameters
+params.C_grid       = 0.05;        % $/kWh grid electricity
+params.C_diesel     = 0.15;        % $/kWh diesel generation
+params.C_batt       = 0.10;        % $/kWh battery throughput
 
-params.w = 0.8;                      % Inertia weight for PSO
-params.w_damp = 0.99;                % Damping factor for PSO
-params.c1 = 2;                       % Cognitive weight for PSO
-params.c2 = 2;                       % Social weight for PSO
+% New parameter: Maximum grid power (define this based on system constraints)
+params.max_grid     = 500;         % kW, maximum grid power available for dispatch
+params.max_diesel   = 500;         % kW, maximum diesel power available for dispatch
 
-params.vel_max = 0.1;                % Maximum velocity for PSO
+% Optimization parameters
+params.max_iter     = 100;
+params.n_nests      = 20;
+params.n_particles  = 20;
+params.w            = 0.8;
+params.w_damp       = 0.99;
+params.c1           = 2;
+params.c2           = 2;
+params.vel_max      = 0.1;
+% Adaptive CSA parameters
+params.alpha0       = 1;           % initial Lévy scaling
+params.beta         = 1.5;         % Lévy distribution exponent
 
-% 2. Load data
+% 2. Load historical data
 disp('Loading data...');
-% Pass the params structure to loadData
 [time, data] = loadData(params);
 
-% 3. Set optimization problem bounds
-T = length(time); % Number of time steps (48h = 48 points)
+% 3. Forecast next 24 hours (ARIMA or LSTM)
+history.load        = data.load;
+history.irradiance = data.irradiance;
+history.temperature = data.temperature;
+history.wind_speed  = data.wind_speed;
 
-lb = zeros(3*T, 1);    % Lower bound (all power dispatch is >= 0)
-ub = [repmat(500, T, 1);  % Upper bound for grid power (max 500 kW)
-      repmat(500, T, 1);  % Upper bound fordiesel power (max 500 kW)
-      repmat(50, T, 1)]; % Upper bound for battery power (max 50 kW)
+% Use ARIMA forecasts
+fi = forecastAllARIMA(history);
+% Or use LSTM forecasts:
+% fl = forecastAllLSTM(history);
 
-% 4. Run optimization using CSA
-disp('Running CSA...');
-options_CSA = struct('max_iter', params.max_iter, 'n_nests', params.n_nests, 'w', params.w, ...
-                     'w_damp', params.w_damp, 'c1', params.c1, 'c2', params.c2);
-[bestSol_CSA, bestCost_CSA] = CSA(@(x) fitnessFunction(x, data, params), lb, ub, options_CSA);
+% Update data with forecasts
+data.load        = fi.load;
+data.irradiance = fi.irradiance;
+data.temperature = fi.temperature;
+data.wind_speed  = fi.wind_speed;
 
-% 5. Run optimization using PSO
+% 4. Compute renewable outputs using new models
+Tsteps = numel(time);
+P_pv = zeros(Tsteps,1);
+for t = 1:Tsteps
+    % Convert temperature from °C to K
+    tempK = data.temperature(t) + 273.15;
+    I = PVModel_SingleDiode(params.PV.Vmp, data.irradiance(t), tempK, params.PV);
+    P_pv(t) = (I * params.PV.Vmp) / 1000;  % kW
+end
+% Wind power
+R = sqrt(params.Wind.area/pi); % rotor radius (m)
+lambda = (params.Wind.omega * R) ./ data.wind_speed;
+Cp = WindModel_CpLambdaBeta(lambda, params.Wind.beta);
+P_wind = 0.5 * params.Wind.rho * params.Wind.area .* Cp .* (data.wind_speed.^3) / 1000; % kW
+
+data.P_pv   = P_pv;
+data.P_wind = P_wind;
+
+% 5. Set optimization bounds
+T = Tsteps;
+lb = zeros(3*T,1);
+ub = [repmat(params.max_grid, T,1);
+      repmat(params.max_diesel, T,1);
+      repmat(params.BESS.max_discharge, T,1)];
+
+% 6. Run Adaptive CSA
+disp('Running CSA_Adaptive...');
+optsCSA = struct('max_iter', params.max_iter, 'n_nests', params.n_nests, 'alpha0', params.alpha0, 'beta', params.beta);
+[bestSol_CSA, bestCost_CSA] = CSA_Adaptive(@(x) fitnessFunction(x, data, params), lb, ub, optsCSA);
+
+% 7. Run PSO
 disp('Running PSO...');
-options_PSO = struct('max_iter', params.max_iter, 'n_particles', params.n_particles, 'w', params.w, ...
-                     'w_damp', params.w_damp, 'c1', params.c1, 'c2', params.c2, 'vel_max', params.vel_max);
-[bestSol_PSO, bestCost_PSO] = PSO(@(x) fitnessFunction(x, data, params), lb, ub, options_PSO);
+optsPSO = struct('max_iter', params.max_iter, 'n_particles', params.n_particles, 'w', params.w, 'w_damp', params.w_damp, 'c1', params.c1, 'c2', params.c2, 'vel_max', params.vel_max);
+[bestSol_PSO, bestCost_PSO] = PSO(@(x) fitnessFunction(x, data, params), lb, ub, optsPSO);
 
-% 6. Display results
+% 8. Display results
 disp('Optimization Results:');
-fprintf('CSA Best Cost: %.2f\n', bestCost_CSA);
-fprintf('PSO Best Cost: %.2f\n', bestCost_PSO);
+fprintf('CSA Best Cost: %.2f', bestCost_CSA);
+fprintf('PSO Best Cost: %.2f', bestCost_PSO);
 
-% 7. Plot results: Compare dispatch profiles
+% 9. Plot dispatch profiles
 figure;
 subplot(2,1,1);
 plot(time, bestSol_CSA(1:T), '-b', 'LineWidth', 1.5); hold on;
 plot(time, bestSol_CSA(T+1:2*T), '-r', 'LineWidth', 1.5);
 plot(time, bestSol_CSA(2*T+1:3*T), '-k', 'LineWidth', 1.5);
-legend('Grid Power (kW)', 'Diesel Power (kW)', 'Battery Power (kW)');
-xlabel('Time (hours)');
-ylabel('Power (kW)');
-title('CSA Optimal Dispatch Profile');
+legend('Grid','Diesel','Battery'); xlabel('Time (h)'); ylabel('Power (kW)');
+title('CSA Adaptive Dispatch Profile');
 
 subplot(2,1,2);
 plot(time, bestSol_PSO(1:T), '-b', 'LineWidth', 1.5); hold on;
 plot(time, bestSol_PSO(T+1:2*T), '-r', 'LineWidth', 1.5);
 plot(time, bestSol_PSO(2*T+1:3*T), '-k', 'LineWidth', 1.5);
-legend('Grid Power (kW)', 'Diesel Power (kW)', 'Battery Power (kW)');
-xlabel('Time (hours)');
-ylabel('Power (kW)');
-title('PSO Optimal Dispatch Profile');
+legend('Grid','Diesel','Battery'); xlabel('Time (h)'); ylabel('Power (kW)');
+title('PSO Dispatch Profile');
 
-% 8. Save results to a file
-save('optimization_results.mat', 'bestSol_CSA', 'bestCost_CSA', 'bestSol_PSO', 'bestCost_PSO');
+% 10. Save results
+save('optimization_results.mat','bestSol_CSA','bestCost_CSA','bestSol_PSO','bestCost_PSO');
 disp('Results saved to optimization_results.mat');
 
-% Load data function
+% Load data function (unchanged)
 function [time, data] = loadData(params)
     % Load atmospheric temperature data
     tempTbl = readtable('data/Atmospheric_Temperature.xlsx', 'Sheet', 'Sheet1');
@@ -128,6 +170,6 @@ function [time, data] = loadData(params)
     data.load = TT48.load_demand;
     data.irradiance = TT48.irradiance;
     data.wind_speed = TT48.wind_speed;
-    data.P_pv = PV_model(data.irradiance, data.temperature, params.PV);
-    data.P_wind = Wind_model(data.wind_speed, params.Wind);
+    %data.P_pv = PV_model(data.irradiance, data.temperature, params.PV);
+    %data.P_wind = Wind_model(data.wind_speed, params.Wind);
 end
