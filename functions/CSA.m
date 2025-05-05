@@ -27,7 +27,8 @@ function [bestSol, bestCost] = CSA(fitnessFunc, lb, ub, options)
             newSol = nests(i, :) + w * step .* (nests(i, :) - bestSol');
             newSol = min(max(newSol, lb'), ub');
             
-            newCost = fitnessFunc(newSol');
+            % Ensure newSol is a row vector, pass as column to fitnessFunc
+            newCost = fitnessFunc(newSol(:));
             j = randi(np);
             if newCost < fitness(j)
                 nests(j, :) = newSol(1, :);

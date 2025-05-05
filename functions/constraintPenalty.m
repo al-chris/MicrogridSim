@@ -60,4 +60,5 @@ function penalty = constraintPenalty(x, data, params)
         diff = -params.BESS.max_charge - P_batt(P_batt < -params.BESS.max_charge);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
+    assert(isscalar(penalty), "Penalty is not scalar!");
 end

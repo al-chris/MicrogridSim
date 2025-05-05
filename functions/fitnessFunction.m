@@ -26,6 +26,8 @@ function totalCost = fitnessFunction(x, data, params)
 %    - Power balance mismatch
 %    - SoC violations
 %    - Power limit violations (grid, diesel, battery)
+    
+    %disp(size(x));
 
     % Unpack data
     P_pv   = data.P_pv(:);
