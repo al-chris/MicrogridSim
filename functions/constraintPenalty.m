@@ -19,8 +19,8 @@ function penalty = constraintPenalty(x, data, params)
     P_batt   = x(2*T+1:3*T);
     
     penalty = 0;
-    w_balance = 1e5;    % weight for power balance mismatch (cost per kW imbalance)
-    w_bounds  = 1e6;    % weight for violating hard bounds (SoC, power limits)
+    w_balance = 1e3;    % weight for power balance mismatch (cost per kW imbalance)
+    w_bounds  = 1e5;    % weight for violating hard bounds (SoC, power limits)
     
     %% Power balance constraint
     net_supply = P_pv + P_wind + P_grid + P_diesel + P_batt - P_load;
@@ -36,28 +36,33 @@ function penalty = constraintPenalty(x, data, params)
     above_max = SoC > SoC_max;
     if any(below_min)
         diff = SoC_min - SoC(below_min);
+        disp(['SoC below min: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
     if any(above_max)
         diff = SoC(above_max) - SoC_max;
+        disp(['SoC above max: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
-    
-    %% Power limits constraints
+    % ...existing code...
     if any(P_grid < 0)
         diff = -P_grid(P_grid < 0);
+        disp(['P_grid below 0: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
     if any(P_diesel < 0)
         diff = -P_diesel(P_diesel < 0);
+        disp(['P_diesel below 0: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
     if any(P_batt > params.BESS.max_discharge)
         diff = P_batt(P_batt > params.BESS.max_discharge) - params.BESS.max_discharge;
+        disp(['P_batt above max discharge: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
     if any(P_batt < -params.BESS.max_charge)
         diff = -params.BESS.max_charge - P_batt(P_batt < -params.BESS.max_charge);
+        disp(['P_batt below max charge: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
     assert(isscalar(penalty), "Penalty is not scalar!");

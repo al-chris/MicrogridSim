@@ -1,5 +1,8 @@
 % main.m - Main script to simulate microgrid and run optimization using CSA and PSO
 
+addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\functions')
+addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\forecasting')
+
 % 1. System parameters
 % PV single-diode parameters
 params.PV.Iph_ref   = 5;           % A, reference photocurrent at STC (user to adjust)
@@ -42,8 +45,8 @@ params.max_diesel   = 500;         % kW, maximum diesel power available for disp
 params.max_iter     = 100;
 params.n_nests      = 20;
 params.n_particles  = 20;
-params.w            = 0.8;
-params.w_damp       = 0.99;
+params.w            = 0.8;         % Inertia weight
+params.w_damp       = 0.99;        % Damping
 params.c1           = 2;
 params.c2           = 2;
 params.vel_max      = 0.1;
@@ -67,18 +70,19 @@ fi = forecastAllARIMA(history);
 % fl = forecastAllLSTM(history);
 
 % Update data with forecasts
-data.load        = fi.load;
-data.irradiance = fi.irradiance;
+data.load        = max(fi.load, 0);
+data.irradiance = max(fi.irradiance, 0);
 data.temperature = fi.temperature;
-data.wind_speed  = fi.wind_speed;
+data.wind_speed  = max(fi.wind_speed, 0);
 
 % 4. Compute renewable outputs using new models
 Tsteps = numel(time);
 P_pv = zeros(Tsteps,1);
 for t = 1:Tsteps
     % Convert temperature from °C to K
-    tempK = data.temperature(t) + 273.15;
-    I = PVModel_SingleDiode(params.PV.Vmp, data.irradiance(t), tempK, params.PV);
+    tempK = max(data.temperature(t) + 273.15, 200); % Clamp to reasonable min
+    irr = max(data.irradiance(t), 0);               % Clamp to non-negative
+    I = PVModel_SingleDiode(params.PV.Vmp, irr, tempK, params.PV);
     P_pv(t) = (I * params.PV.Vmp) / 1000;  % kW
 end
 % Wind power

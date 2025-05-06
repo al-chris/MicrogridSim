@@ -1,6 +1,7 @@
 function forecasts = forecastAllLSTM(history)
 %forecastAllLSTM 24h LSTM forecasts for load, irradiance, temp, wind
-    series = {'load','irradiance','temperature','wind'}; h=24;
+    series = {'load','irradiance','temperature','wind'};
+    h=24;
     forecasts = struct(); 
     for s=series
         y = history.(s{1});
