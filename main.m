@@ -59,6 +59,7 @@ disp('Loading data...');
 [time, data] = loadData(params);
 
 % 3. Forecast next 24 hours (ARIMA or LSTM)
+nForecast = 24;
 history.load        = data.load;
 history.irradiance = data.irradiance;
 history.temperature = data.temperature;
@@ -67,29 +68,32 @@ history.wind_speed  = data.wind_speed;
 % Use ARIMA forecasts
 fi = forecastAllARIMA(history);
 % Or use LSTM forecasts:
-% fl = forecastAllLSTM(history);
+%fl = forecastAllLSTM(history);
 
 % Update data with forecasts
-data.load        = max(fi.load, 0);
-data.irradiance = max(fi.irradiance, 0);
-data.temperature = fi.temperature;
-data.wind_speed  = max(fi.wind_speed, 0);
+data.load        = [history.load;        max(fi.load, 0)];
+data.irradiance  = [history.irradiance;  max(fi.irradiance, 0)];
+data.temperature = [history.temperature; fi.temperature];
+data.wind_speed  = [history.wind_speed;  max(fi.wind_speed, 0)];
+
+% Update time vector to match new data length
+time = [time; time(end) + hours(1:nForecast)'];
 
 % 4. Compute renewable outputs using new models
 Tsteps = numel(time);
 P_pv = zeros(Tsteps,1);
 for t = 1:Tsteps
-    % Convert temperature from °C to K
-    tempK = max(data.temperature(t) + 273.15, 200); % Clamp to reasonable min
-    irr = max(data.irradiance(t), 0);               % Clamp to non-negative
+    tempK = max(data.temperature(t) + 273.15, 200);
+    irr = max(data.irradiance(t), 0);
     I = PVModel_SingleDiode(params.PV.Vmp, irr, tempK, params.PV);
     P_pv(t) = (I * params.PV.Vmp) / 1000;  % kW
 end
+
 % Wind power
 R = sqrt(params.Wind.area/pi); % rotor radius (m)
-lambda = (params.Wind.omega * R) ./ data.wind_speed;
+lambda = (params.Wind.omega * R) ./ data.wind_speed(1:Tsteps);
 Cp = WindModel_CpLambdaBeta(lambda, params.Wind.beta);
-P_wind = 0.5 * params.Wind.rho * params.Wind.area .* Cp .* (data.wind_speed.^3) / 1000; % kW
+P_wind = 0.5 * params.Wind.rho * params.Wind.area .* Cp .* (data.wind_speed(1:Tsteps).^3) / 1000; % kW
 
 data.P_pv   = P_pv;
 data.P_wind = P_wind;
@@ -112,9 +116,9 @@ optsPSO = struct('max_iter', params.max_iter, 'n_particles', params.n_particles,
 [bestSol_PSO, bestCost_PSO] = PSO(@(x) fitnessFunction(x, data, params), lb, ub, optsPSO);
 
 % 8. Display results
-disp('Optimization Results:');
-fprintf('CSA Best Cost: %.2f', bestCost_CSA);
-fprintf('PSO Best Cost: %.2f', bestCost_PSO);
+fprintf('\nOptimization Results:\n');
+fprintf('  CSA Best Cost: %.2f\n', bestCost_CSA);
+fprintf('  PSO Best Cost: %.2f\n\n', bestCost_PSO);
 
 % 9. Plot dispatch profiles
 figure;
@@ -136,24 +140,21 @@ title('PSO Dispatch Profile');
 save('optimization_results.mat','bestSol_CSA','bestCost_CSA','bestSol_PSO','bestCost_PSO');
 disp('Results saved to optimization_results.mat');
 
-% Load data function (unchanged)
-function [time, data] = loadData(params)
+% Load data function (first 312 hours)
+function [time, data] = loadData(~)
     % Load atmospheric temperature data
     tempTbl = readtable('data/Atmospheric_Temperature.xlsx', 'Sheet', 'Sheet1');
-    
-    % Combine date and time columns to create a datetime array
-    t_temp = datetime(tempTbl.Date, 'Format', 'MM-dd-yyyy') + hours(tempTbl.Time);  % assuming Time is in hours
-    
+    t_temp = datetime(tempTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(tempTbl.Time);
     temperature = tempTbl{:, 3};
 
     % Load load schedule data
-    loadTbl = readtable('data/1_LOAD_SCHEDULE.xlsx');
-    t_load = datetime(loadTbl.Date, 'Format', 'MM-dd-yyyy') + hours(loadTbl.Time);  % similar handling for load time
+    loadTbl = readtable('data/1_LOAD_SCHEDULE.xlsx', 'Sheet', 'Sheet1');
+    t_load = datetime(loadTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(loadTbl.Time);
     load_demand = loadTbl.KW;
 
     % Load solar and wind data
     resTbl = readtable('data/accurate_my_wind_speed_and_solar_data.xlsx', 'Sheet', 'Sheet1');
-    t_res = datetime(resTbl.Date, 'Format', 'MM-dd-yyyy') + hours(resTbl.Time);  % same as above
+    t_res = datetime(resTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(resTbl.Time);
     irradiance = resTbl.G;
     wind_speed = resTbl.W_S;
 
@@ -161,19 +162,23 @@ function [time, data] = loadData(params)
     TT_temp = timetable(t_temp, temperature);
     TT_load = timetable(t_load, load_demand);
     TT_res = timetable(t_res, irradiance, wind_speed);
-    
+
+    disp(height(TT_temp));
+    disp(height(TT_load));
+    disp(height(TT_res));
+
     % Synchronize the three timetables, using their respective datetime variables
     TT = synchronize(TT_temp, TT_load, TT_res, 'intersection');
-    
-    % Ensure we're working with the first 48 hours (the Time column of the synchronized timetable is automatically named after the first timetable)
-    TT48 = TT(TT.t_temp < TT.t_temp(1) + hours(48), :);
 
-    % Extract time series for the next 48 hours
-    time = TT48.t_temp;   % Use the datetime from the first timetable (t_temp)
-    data.temperature = TT48.temperature;
-    data.load = TT48.load_demand;
-    data.irradiance = TT48.irradiance;
-    data.wind_speed = TT48.wind_speed;
-    %data.P_pv = PV_model(data.irradiance, data.temperature, params.PV);
-    %data.P_wind = Wind_model(data.wind_speed, params.Wind);
+    disp(height(TT));
+
+    % Use the first 312 hours for training
+    TT312 = TT(TT.t_temp < TT.t_temp(1) + hours(312), :);
+
+    % Extract time series for the first 312 hours
+    time = TT312.t_temp;
+    data.temperature = TT312.temperature;
+    data.load = TT312.load_demand;
+    data.irradiance = TT312.irradiance;
+    data.wind_speed = TT312.wind_speed;
 end

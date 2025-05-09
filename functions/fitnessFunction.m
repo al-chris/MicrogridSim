@@ -27,29 +27,31 @@ function totalCost = fitnessFunction(x, data, params)
 %    - SoC violations
 %    - Power limit violations (grid, diesel, battery)
     
-    %disp(size(x));
+    % Determine horizon from decision vector
+    T = floor(numel(x)/3);
 
-    % Unpack data
-    P_pv   = data.P_pv(:);
-    P_wind = data.P_wind(:);
-    P_load = data.load(:);
-    T = length(P_load);  % number of time steps
+    % Truncate all data series to this horizon
+    data.P_pv   = data.P_pv(:);
+    data.P_wind = data.P_wind(:);
+    data.load   = data.load(:);
+    data.P_pv   = data.P_pv(1:T);
+    data.P_wind = data.P_wind(1:T);
+    data.load   = data.load(1:T);
     
-    % Extract decision variables from x (assumes x is structured as [grid(1..T), diesel(1..T), batt(1..T)])
-    P_grid = x(1:T);
+    % Extract decision variables
+    P_grid   = x(1:T);
     P_diesel = x(T+1:2*T);
-    P_batt = x(2*T+1:3*T);
+    P_batt   = x(2*T+1:3*T);
     
     % Compute base cost (without penalties)
-    cost_grid = params.C_grid * max(P_grid, 0);  % ensure no negative
+    cost_grid   = params.C_grid   * max(P_grid, 0);
     cost_diesel = params.C_diesel * max(P_diesel, 0);
-    cost_batt = params.C_batt * abs(P_batt);
+    cost_batt   = params.C_batt   * abs(P_batt);
+    baseCost    = sum(cost_grid + cost_diesel + cost_batt);
     
-    baseCost = sum(cost_grid + cost_diesel + cost_batt);
+    % Compute penalty (now using truncated data)
+    penalty = constraintPenalty([P_grid; P_diesel; P_batt], data, params);
     
-    % Compute total penalty for constraint violations
-    penalty = constraintPenalty(x, data, params);
-    
-    % Total fitness value (objective value)
+    % Total fitness value
     totalCost = baseCost + penalty;
 end
