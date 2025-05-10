@@ -2,6 +2,7 @@
 
 addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\functions')
 addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\forecasting')
+addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\utils')
 
 % 1. System parameters
 % PV single-diode parameters
@@ -58,23 +59,16 @@ params.beta         = 1.5;         % Lévy distribution exponent
 disp('Loading data...');
 [time, data] = loadData(params);
 
-% 3. Forecast next 24 hours (ARIMA or LSTM)
+% 3. Forecast next 24 hours using specified method
 nForecast = 24;
-history.load        = data.load;
+history.load       = data.load;
 history.irradiance = data.irradiance;
 history.temperature = data.temperature;
 history.wind_speed  = data.wind_speed;
 
-% Use ARIMA forecasts
-fi = forecastAllARIMA(history);
-% Or use LSTM forecasts:
-%fl = forecastAllLSTM(history);
-
-% Update data with forecasts
-data.load        = [history.load;        max(fi.load, 0)];
-data.irradiance  = [history.irradiance;  max(fi.irradiance, 0)];
-data.temperature = [history.temperature; fi.temperature];
-data.wind_speed  = [history.wind_speed;  max(fi.wind_speed, 0)];
+% Choose forecast method: "arima" or "lstm"
+forecastMethod = "arima";  % Change to "lstm" if preferred
+data = updateForecasts(data, history, forecastMethod, nForecast);
 
 % Update time vector to match new data length
 time = [time; time(end) + hours(1:nForecast)'];
@@ -123,17 +117,21 @@ fprintf('  PSO Best Cost: %.2f\n\n', bestCost_PSO);
 % 9. Plot dispatch profiles
 figure;
 subplot(2,1,1);
-plot(time, bestSol_CSA(1:T), '-b', 'LineWidth', 1.5); hold on;
+plot(time, bestSol_CSA(1:T), '-b', 'LineWidth', 1.5); 
+hold on;
 plot(time, bestSol_CSA(T+1:2*T), '-r', 'LineWidth', 1.5);
 plot(time, bestSol_CSA(2*T+1:3*T), '-k', 'LineWidth', 1.5);
-legend('Grid','Diesel','Battery'); xlabel('Time (h)'); ylabel('Power (kW)');
+legend('Grid','Diesel','Battery'); xlabel('Time (h)'); 
+ylabel('Power (kW)');
 title('CSA Adaptive Dispatch Profile');
 
 subplot(2,1,2);
-plot(time, bestSol_PSO(1:T), '-b', 'LineWidth', 1.5); hold on;
+plot(time, bestSol_PSO(1:T), '-b', 'LineWidth', 1.5); 
+hold on;
 plot(time, bestSol_PSO(T+1:2*T), '-r', 'LineWidth', 1.5);
 plot(time, bestSol_PSO(2*T+1:3*T), '-k', 'LineWidth', 1.5);
-legend('Grid','Diesel','Battery'); xlabel('Time (h)'); ylabel('Power (kW)');
+legend('Grid','Diesel','Battery'); xlabel('Time (h)'); 
+ylabel('Power (kW)');
 title('PSO Dispatch Profile');
 
 % 10. Save results
@@ -144,17 +142,23 @@ disp('Results saved to optimization_results.mat');
 function [time, data] = loadData(~)
     % Load atmospheric temperature data
     tempTbl = readtable('data/Atmospheric_Temperature.xlsx', 'Sheet', 'Sheet1');
-    t_temp = datetime(tempTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(tempTbl.Time);
+    t_temp = datetime(tempTbl.Date, 'Format', 'dd-MMMM-yyyy') + days(tempTbl.Time);
+    t_temp.Format = 'dd-MMMM-yyyy HH:mm:ss';
+    t_temp = dateshift(t_temp, 'start', 'hour');
     temperature = tempTbl{:, 3};
 
     % Load load schedule data
     loadTbl = readtable('data/1_LOAD_SCHEDULE.xlsx', 'Sheet', 'Sheet1');
-    t_load = datetime(loadTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(loadTbl.Time);
+    t_load = datetime(loadTbl.Date, 'Format', 'dd-MMMM-yyyy') + days(loadTbl.Time);
+    t_load.Format = 'dd-MMMM-yyyy HH:mm:ss';
+    t_load = dateshift(t_temp, 'start', 'hour');
     load_demand = loadTbl.KW;
 
     % Load solar and wind data
     resTbl = readtable('data/accurate_my_wind_speed_and_solar_data.xlsx', 'Sheet', 'Sheet1');
-    t_res = datetime(resTbl.Date, 'Format', 'MM-dd-yyyy ss:mm:hh') + hours(resTbl.Time);
+    t_res = datetime(resTbl.Date, 'Format', 'dd-MMMM-yyyy') + days(resTbl.Time);
+    t_res.Format = 'dd-MMMM-yyyy HH:mm:ss';
+    t_res = dateshift(t_temp, 'start', 'hour');
     irradiance = resTbl.G;
     wind_speed = resTbl.W_S;
 
@@ -173,12 +177,12 @@ function [time, data] = loadData(~)
     disp(height(TT));
 
     % Use the first 312 hours for training
-    TT312 = TT(TT.t_temp < TT.t_temp(1) + hours(312), :);
+    % TT312 = TT(TT.t_temp < TT.t_temp(1) + hours(312), :);
 
     % Extract time series for the first 312 hours
-    time = TT312.t_temp;
-    data.temperature = TT312.temperature;
-    data.load = TT312.load_demand;
-    data.irradiance = TT312.irradiance;
-    data.wind_speed = TT312.wind_speed;
+    time = TT.t_temp;
+    data.temperature = TT.temperature;
+    data.load = TT.load_demand;
+    data.irradiance = TT.irradiance;
+    data.wind_speed = TT.wind_speed;
 end

@@ -44,7 +44,6 @@ function penalty = constraintPenalty(x, data, params)
         disp(['SoC above max: ', num2str(sum(diff))]);
         penalty = penalty + w_bounds * sum(diff.^2);
     end
-    % ...existing code...
     if any(P_grid < 0)
         diff = -P_grid(P_grid < 0);
         disp(['P_grid below 0: ', num2str(sum(diff))]);
