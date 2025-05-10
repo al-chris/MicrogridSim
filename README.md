@@ -194,11 +194,14 @@ MicrogridSim/
 
 1. **System Architecture Diagram:**  
    Show the flow from data input (Excel files) → forecasting → simulation (PV, wind, battery) → optimization (CSA/PSO) → results/plots.
+   ![System Architecture Diagram](system-architecture.svg)
 
-2. **PV Model Flowchart:**  
+2. **PV Model Flow:**  
    Visualize the process in `PVModel_SingleDiode.m`: Inputs (V, G, T, params) → Compute Iph/I0 → Root-finding for I → Output current.
+   ![PV Model Flowchart](pv-model.svg)
 
 3. **Optimization Process Flow:**  
    Diagram showing how CSA/PSO interact with the fitness function, constraint penalty, and battery simulation during optimization.
+   ![Optimization Process Flow](csa-pso-interaction.svg)
 
 ---
