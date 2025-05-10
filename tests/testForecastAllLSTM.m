@@ -1,6 +1,6 @@
 % filepath: tests/testForecastAllLSTM.m
 
-addpath('c:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\forecasting')
+addpath('MicrogridSim\forecasting')
 
 function tests = test_ForecastAllLSTM
     tests = functiontests(localfunctions);

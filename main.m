@@ -1,8 +1,8 @@
 % main.m - Main script to simulate microgrid and run optimization using CSA and PSO
 
-addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\functions')
-addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\forecasting')
-addpath('C:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\utils')
+addpath('MicrogridSim\functions')
+addpath('MicrogridSim\forecasting')
+addpath('MicrogridSim\utils')
 
 % 1. System parameters
 % PV single-diode parameters

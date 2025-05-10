@@ -1,6 +1,6 @@
 % filepath: tests/testForecastAllARIMA.m
 
-addpath('c:\Users\CHRISTOPHER\Documents\MATLAB\MicrogridSim\forecasting')
+addpath('MicrogridSim\forecasting')
 
 function tests = test_ForecastAllARIMA
     tests = functiontests(localfunctions);
