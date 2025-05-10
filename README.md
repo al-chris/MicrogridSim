@@ -186,7 +186,7 @@ MicrogridSim/
 
 ## License
 
-_No LICENSE file found. Please add a LICENSE file to specify project usage rights._
+[LICENSE](LICENSE)
 
 ---
 
